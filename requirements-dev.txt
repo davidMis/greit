@@ -5,3 +5,4 @@ coverage
 pytest-cov
 pre-commit
 ruff
+ipykernel
