@@ -2,3 +2,7 @@
 addopts = "-ra --cov"
 testpaths = ["tests"]
 pythonpath = ['.']
+
+[tool.ruff]
+line-length = 100
+ignore = ["E501"]
