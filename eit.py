@@ -22,6 +22,10 @@ import numpy as np
 #
 #
 # col  0     1      2     3     4    5
+#
+#
+# TODO: So much of this code is dealing with these rectangular graphs.
+# This code could be abstracted and reused, maybe for simulations.
 
 
 def num_edges(N):
@@ -32,8 +36,47 @@ def num_nodes(N):
     return 4 * N + N**2
 
 
+# TODO: rename to just "index"
 def interior_index(N, row, col):
+    if row == 0:  # South
+        return col - 1
+    if col == N + 1:  # East
+        return N + row - 1
+    if row == N + 1:  # North
+        return 3 * N - col
+    if col == 0:  # West
+        return 4 * N - row
     return (4 * N - 1) + N * (row - 1) + col
+
+
+def node_to_row_col(N, node):
+    if node < N:  # South
+        return (0, node + 1)
+    if node in range(N, 2 * N):  # East
+        return (node - N + 1, N + 1)
+    if node in range(2 * N, 3 * N):  # North
+        return (N + 1, N - (node - 2 * N))
+    if node in range(3 * N, 4 * N):  # West
+        return (N - (node - 3 * N), 0)
+    return (node - 4 * N) // N + 1, (node - 4 * N) % N + 1
+
+
+def neighbors(N, node):
+    row, col = node_to_row_col(N, node)
+    if node < N:  # South
+        return [interior_index(N, row + 1, col)]
+    if node in range(N, 2 * N):  # East
+        return [interior_index(N, row, col - 1)]
+    if node in range(2 * N, 3 * N):  # North
+        return [interior_index(N, row - 1, col)]
+    if node in range(3 * N, 4 * N):  # West
+        return [interior_index(N, row, col + 1)]
+    return [
+        interior_index(N, row - 1, col),
+        interior_index(N, row, col - 1),
+        interior_index(N, row, col + 1),
+        interior_index(N, row + 1, col),
+    ]
 
 
 def K_dim(N):
@@ -485,6 +528,57 @@ def permutation_matrix(vec):
     return M
 
 
+NORTH = 0
+EAST = 1
+SOUTH = 2
+WEST = 3
+
+
+class Current:
+    # Index by southern node for vertical edges, western node for horizontal edges
+    def __init__(self, N):
+        self.N = N
+        self.vec = np.zeros([num_nodes(N), 2])
+
+    def get(self, node, direction):
+        if direction == NORTH or direction == EAST:
+            return self.vec[node, direction]
+
+        row, col = node_to_row_col(self.N, node)
+        if direction == SOUTH:
+            return self.get(interior_index(self.N, row - 1, col), NORTH)
+        if direction == WEST:
+            return self.get(interior_index(self.N, row, col - 1), EAST)
+
+    def set(self, node, direction, val):
+        if direction == NORTH or direction == EAST:
+            self.vec[node, direction] = val
+
+        row, col = node_to_row_col(self.N, node)
+        if direction == SOUTH:
+            self.set(interior_index(self.N, row - 1, col), NORTH, val)
+        if direction == WEST:
+            self.set(interior_index(self.N, row, col - 1), EAST, val)
+
+
+def boundary_response_to_full_current(N, response):
+    """
+    Canvert a size [4*N] vector of boundary currents to a size [num_nodes][4] matrix
+    meant to hold currents of all edges. First index of c is start node, second index
+    should be one of SOUTH, EAST, NORTH, WEST
+    """
+    c = Current(N)
+    for node in range(N):  # South
+        c.set(node, NORTH, response[node])
+    for node in range(N, 2 * N):  # East
+        c.set(node, WEST, response[node])
+    for node in range(2 * N, 3 * N):  # North
+        c.set(node, SOUTH, response[node])
+    for node in range(3 * N, 4 * N):  # North
+        c.set(node, EAST, response[node])
+    return c
+
+
 def curtis_morrow(N, Lambda):
     K = np.zeros([K_dim(N), K_dim(N)])
 
@@ -492,28 +586,43 @@ def curtis_morrow(N, Lambda):
     Lambda_rot_mat = permutation_matrix(boundary_rotation_vector(N))
 
     if N > 0:
-        for _ in range(4):
-            # Using Curtis and Morrow's notation
-            q1 = 2 * N
-            r = interior_index(N, N, N)
+        for rotations in range(4):
+            for lvl in range(1):
 
-            y_N = np.zeros(N)
-            y_N[0] = 1
+                y_N = np.zeros(N)
+                y_N[lvl] = 1
 
-            psi_W = Lambda[boundary_slice_W(N), boundary_slice_N(N)] @ y_N
-            x_E = np.linalg.solve(
-                Lambda[boundary_slice_W(N), boundary_slice_E(N)], -psi_W
-            )
-            x = np.zeros(4 * N)
-            x[boundary_slice_N(N)] = y_N
-            x[boundary_slice_E(N)] = x_E
+                psi_W = Lambda[boundary_slice_W(N), boundary_slice_N(N)] @ y_N
+                x_E = np.linalg.solve(
+                    Lambda[boundary_slice_W(N), boundary_slice_E(N)], -psi_W
+                )
+                x = np.zeros(4 * N)
+                x[boundary_slice_N(N)] = y_N
+                x[boundary_slice_E(N)] = x_E
 
-            K[q1, r] = -(Lambda @ x)[q1]
-            K[r, q1] = K[q1, r]
+                current = boundary_response_to_full_current(N, Lambda @ x)
+                # Current = 0 on West.
+                # By harmonic continuation, current = 0 on all interior nodes up
+                # to triangle starting at q_lvl
+
+                # Calculate conductances in zig-zag pattern
+                for edge in range(lvl + 1):
+                    K = update(N, K, current, lvl, edge)
 
             # Rotate
             K = K_rot_mat @ K @ K_rot_mat.T
             Lambda = Lambda_rot_mat @ Lambda @ Lambda_rot_mat.T
 
     K = K - np.diag(np.sum(K, axis=1))  # Fill in diagonal entries
+    return K
+
+
+def update(N, K, current, lvl, edge):
+    # Using Curtis and Morrow's notation
+    q1 = 2 * N
+    r = interior_index(N, N, N)
+
+    K[q1, r] = -current.get(r, NORTH)
+    K[r, q1] = K[q1, r]
+
     return K

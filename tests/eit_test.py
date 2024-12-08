@@ -21,6 +21,24 @@ def test_permutation_matrix():
     np.testing.assert_allclose(M @ y, v)
 
 
+def test_index():
+    assert eit.interior_index(4, 0, 1) == 0
+    assert eit.interior_index(4, 1, 5) == 4
+    assert eit.interior_index(4, 5, 2) == 10
+    assert eit.interior_index(4, 1, 0) == 15
+    assert eit.interior_index(4, 2, 2) == 21
+
+
+def test_neighbors():
+    assert eit.neighbors(4, 0) == [16]
+    assert eit.neighbors(4, 1) == [17]
+    assert eit.neighbors(4, 4) == [19]
+    assert eit.neighbors(4, 8) == [31]
+    assert eit.neighbors(4, 12) == [28]
+    assert eit.neighbors(4, 28) == [24, 12, 29, 11]
+    assert eit.neighbors(4, 21) == [17, 20, 22, 25]
+
+
 def test_rectangular_inversion():
     def rectangular_inversion(N):
         adj = eit.build_adjacency_matrix(N)
