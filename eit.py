@@ -152,9 +152,12 @@ def unflatten_K(N, flat_K, adj):
 
 # assert (KK[0] == unflatten_K(N, flatten_K(N, KK[0], adj), adj)).all()
 
+# Rotate a network?
+# def rotate(N?):
+#   pass
+
 
 def curtis_morrow(N, Lambda):
-    assert N <= 3
     K = np.zeros([K_dim(N), K_dim(N)])
 
     S_idx = slice(0 * N, 1 * N)
@@ -232,10 +235,6 @@ def curtis_morrow(N, Lambda):
             Lambda[q, N_idx] @ np.linalg.solve(Lambda[S_idx, N_idx], Lambda[S_idx, q])
             - Lambda[q, q]
         )
-
-    # K[q1,r] = Lambda[q1,E_idx] @ jnp.linalg.solve(Lambda[W_idx, E_idx], Lambda[W_idx, q1]) - Lambda[q1,q1]
-    # K[q2,s1] = Lambda[q2,E_idx] @ jnp.linalg.solve(Lambda[W_idx, E_idx], Lambda[W_idx, q2]) - Lambda[q2,q2]
-    # K[p1,r] = Lambda[p1,S_idx] @ jnp.linalg.solve(Lambda[N_idx, S_idx], Lambda[N_idx, p1]) - Lambda[p1,p1]
 
     # Tangent shell 1
 
