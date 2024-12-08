@@ -24,16 +24,36 @@ import numpy as np
 # col  0     1      2     3     4    5
 
 
+def num_edges(N):
+    return (N + 1) * N * 2
+
+
+def num_nodes(N):
+    return 4 * N + N**2
+
+
 def interior_index(N, row, col):
     return (4 * N - 1) + N * (row - 1) + col
 
 
 def K_dim(N):
-    return 4 * N + N**2
+    return num_nodes(N)
 
 
-def num_edges(N):
-    return (N + 1) * N * 2
+def boundary_slice_S(N):
+    return slice(0 * N, 1 * N)
+
+
+def boundary_slice_E(N):
+    return slice(1 * N, 2 * N)
+
+
+def boundary_slice_N(N):
+    return slice(2 * N, 3 * N)
+
+
+def boundary_slice_W(N):
+    return slice(3 * N, 4 * N)
 
 
 def build_adjacency_matrix(N):
@@ -157,7 +177,7 @@ def unflatten_K(N, flat_K, adj):
 #   pass
 
 
-def curtis_morrow(N, Lambda):
+def curtis_morrow_bak(N, Lambda):
     K = np.zeros([K_dim(N), K_dim(N)])
 
     S_idx = slice(0 * N, 1 * N)
@@ -408,5 +428,92 @@ def curtis_morrow(N, Lambda):
         K[t2, s1] = -c[q3, t2, s1] / u[q3, s1]
 
     K = K + K.T  # Make Symmetric
+    K = K - np.diag(np.sum(K, axis=1))  # Fill in diagonal entries
+    return K
+
+
+def rotation_vector(N):
+    """
+    A N-vector giving the indexes resulting from rotating the electrical graph by
+    45 degrees counterclockwise. E.g. for use with Kirchhoff matrices.
+    """
+    # "top" and "bot(tom)" refer to the "matrix notation" for the permutation group:
+    #   1 2 3 4
+    #   2 3 4 1
+    # means
+    #   1 -> 2, 2 -> 3, 3 -> 4, 4 -> 1.
+    # See "Aluffi: Algebra Chapter 0" or any other Algebra textbook.
+    # First, set the boundary nodes.
+    top = np.arange(num_nodes(N))
+    bot = np.zeros_like(top)
+    bot[boundary_slice_S(N)] = top[boundary_slice_W(N)]
+    bot[boundary_slice_E(N)] = top[boundary_slice_S(N)]
+    bot[boundary_slice_N(N)] = top[boundary_slice_E(N)]
+    bot[boundary_slice_W(N)] = top[boundary_slice_N(N)]
+    # Now the interior nodes.
+    for i in range(1, N + 1):
+        for j in range(1, N + 1):
+            bot[interior_index(N, i, j)] = top[interior_index(N, (N + 1) - j, i)]
+    return bot
+
+
+def boundary_rotation_vector(N):
+    """
+    See the docstring for `rotation_vector`.
+    For sue with, e.g. response maps $\Lambda$.
+    """
+    top = np.arange(4 * N)
+    bot = np.zeros_like(top)
+    bot[boundary_slice_S(N)] = top[boundary_slice_W(N)]
+    bot[boundary_slice_E(N)] = top[boundary_slice_S(N)]
+    bot[boundary_slice_N(N)] = top[boundary_slice_E(N)]
+    bot[boundary_slice_W(N)] = top[boundary_slice_N(N)]
+    return bot
+
+
+def permutation_matrix(vec):
+    """
+    Build a permutation matrix $P$ from a permutation vector $v$.
+    $$
+        Py = v
+    $$
+    where $y = (0, 1, 2, .., N)$
+    """
+    M = np.zeros([vec.size, vec.size])
+    for j in range(vec.size):
+        M[j, vec[j]] = 1
+    return M
+
+
+def curtis_morrow(N, Lambda):
+    K = np.zeros([K_dim(N), K_dim(N)])
+
+    K_rot_mat = permutation_matrix(rotation_vector(N))
+    Lambda_rot_mat = permutation_matrix(boundary_rotation_vector(N))
+
+    if N > 0:
+        for _ in range(4):
+            # Using Curtis and Morrow's notation
+            q1 = 2 * N
+            r = interior_index(N, N, N)
+
+            y_N = np.zeros(N)
+            y_N[0] = 1
+
+            psi_W = Lambda[boundary_slice_W(N), boundary_slice_N(N)] @ y_N
+            x_E = np.linalg.solve(
+                Lambda[boundary_slice_W(N), boundary_slice_E(N)], -psi_W
+            )
+            x = np.zeros(4 * N)
+            x[boundary_slice_N(N)] = y_N
+            x[boundary_slice_E(N)] = x_E
+
+            K[q1, r] = -(Lambda @ x)[q1]
+            K[r, q1] = K[q1, r]
+
+            # Rotate
+            K = K_rot_mat @ K @ K_rot_mat.T
+            Lambda = Lambda_rot_mat @ Lambda @ Lambda_rot_mat.T
+
     K = K - np.diag(np.sum(K, axis=1))  # Fill in diagonal entries
     return K
